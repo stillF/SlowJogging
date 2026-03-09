@@ -4,9 +4,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>stillF&nbsp;-&nbsp;超慢跑節奏訓練器</title>
+  <title>stillF - 超慢跑節奏訓練器</title>
   <script src="/SlowJogging/js/vue.js"></script>
-  <!-- <script type="text/javascript" src="./js/vue.js"></script> -->
+  <!-- <script src="./js/vue.js"></script> -->
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -18,7 +18,6 @@
       flex-direction: column;
     }
 
-    /* 置頂導航 */
     nav {
       position: fixed;
       top: 0;
@@ -48,7 +47,6 @@
       color: #ffffff;
     }
 
-    /* 主要內容區域 */
     main {
       flex: 1;
       display: flex;
@@ -192,7 +190,6 @@
       }
     }
 
-    /* Footer */
     footer {
       background: #0a1621;
       color: #8aa4c2;
@@ -215,11 +212,9 @@
 </head>
 
 <body>
-
   <nav>
-    <a href="https://stillf.github.io/" target="_blank">stillF&ensp;信柴柴，得第一</a>
+    <a href="https://stillf.github.io/" target="_blank">stillF 信柴柴，得第一</a>
   </nav>
-
   <main>
     <div id="app">
       <h1>超慢跑節奏訓練器
@@ -235,10 +230,14 @@
           <label>訓練時間（分鐘）</label>
           <input type="number" v-model.number="targetMinutes" min="1" max="120" placeholder="15" />
         </div>
-
         <div>
           <label>目標步頻（BPM）</label>
           <input type="number" v-model.number="bpm" min="120" max="220" step="5" placeholder="180" />
+        </div>
+        <div style="margin-top: 1.5rem;">
+          <label>節拍音量：{{ Math.round(volume * 100) }}%</label>
+          <input type="range" min="0" max="1" step="0.05" v-model.number="volume" @input="updateVolume"
+            style="width: 100%; height: 8px; margin-top: 0.5rem;" />
         </div>
 
         <button @click="start" :disabled="!canStart">開始訓練</button>
@@ -248,24 +247,20 @@
         <div class="timer">
           {{ displayTime }}
         </div>
-
         <div class="beat" :class="beatClass">
           <span v-if="countingDownGo" class="go">GO !</span>
           <span v-else>{{ currentBeatText }}</span>
         </div>
-
         <div class="beat beat-small">
           {{ bpm }} BPM • 左右交替
         </div>
-
         <div class="status">
           <span v-if="finished" class="finished">訓練完成！好棒～</span>
           <span v-else-if="preparing">準備中... {{ prepCountdown }}</span>
-          <span v-else-if="countingDownGo"></span> <!-- GO 已用大字顯示在上方 -->
+          <span v-else-if="countingDownGo"></span>
           <span v-else-if="paused">已暫停</span>
           <span v-else>訓練進行中...</span>
         </div>
-
         <button @click="pauseOrResume" v-if="!finished && !preparing && !countingDownGo">
           {{ paused ? '繼續' : '暫停' }}
         </button>
@@ -274,17 +269,16 @@
       </div>
     </div>
   </main>
-
   <footer>
     <p>© Copyright 2026. All Rights Reserved.</p>
   </footer>
-
   <script>
     new Vue({
       el: "#app",
       data: {
         targetMinutes: 15,
         bpm: 180,
+        volume: 1,
         running: false,
         paused: false,
         finished: false,
@@ -296,9 +290,9 @@
         beatIntervalId: null,
         isLeft: true,
         audioContext: null,
+        gainNode: null,
         lastBeatTime: 0
       },
-
       computed: {
         canStart() {
           return this.targetMinutes >= 1 && this.targetMinutes <= 120 &&
@@ -321,9 +315,19 @@
           return this.isLeft ? "left" : "right";
         }
       },
-
       methods: {
         start() {
+          if (!this.audioContext) {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.gainNode = this.audioContext.createGain();
+            this.gainNode.gain.setValueAtTime(this.volume, this.audioContext.currentTime);
+            this.gainNode.connect(this.audioContext.destination);
+          }
+          if (this.audioContext.state === "suspended") {
+            this.audioContext.resume().catch(err => {
+              console.warn("AudioContext resume failed:", err);
+            });
+          }
           this.preparing = true;
           this.prepCountdown = 10;
           this.running = false;
@@ -331,30 +335,22 @@
           this.finished = false;
           this.secondsLeft = 0;
           this.isLeft = true;
-
           const prepInterval = setInterval(() => {
             this.prepCountdown--;
             if (this.prepCountdown <= 0) {
               clearInterval(prepInterval);
               this.preparing = false;
               this.countingDownGo = true;
-
               setTimeout(() => {
                 this.countingDownGo = false;
                 this._startTraining();
-              }, 1200); // GO 顯示約 1.2 秒
+              }, 1200);
             }
           }, 1000);
         },
-
         _startTraining() {
           this.secondsLeft = this.targetMinutes * 60;
           this.running = true;
-
-          if (!this.audioContext) {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
-
           this.intervalId = setInterval(() => {
             if (!this.paused) {
               this.secondsLeft--;
@@ -363,55 +359,44 @@
               }
             }
           }, 1000);
-
           this.scheduleBeats();
         },
-
         scheduleBeats() {
           if (this.beatIntervalId) clearTimeout(this.beatIntervalId);
-
           const beatInterval = 60 / this.bpm;
-
           const runBeat = () => {
             if (!this.running || this.paused || this.finished) return;
-
             const now = this.audioContext.currentTime;
-
             if (now - this.lastBeatTime >= beatInterval - 0.006) {
               this.playBeat();
               this.isLeft = !this.isLeft;
               this.lastBeatTime = now;
             }
-
             this.beatIntervalId = setTimeout(runBeat, 4);
           };
-
           this.lastBeatTime = this.audioContext.currentTime;
           runBeat();
         },
-
         playBeat() {
-          if (!this.audioContext) return;
-
+          if (!this.audioContext || !this.gainNode) return;
           const osc = this.audioContext.createOscillator();
-          const gain = this.audioContext.createGain();
-
+          const beatGain = this.audioContext.createGain();
           osc.type = "square";
           osc.frequency.value = this.isLeft ? 880 : 660;
-
-          gain.gain.setValueAtTime(0.55, this.audioContext.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.07);
-
-          osc.connect(gain);
-          gain.connect(this.audioContext.destination);
-
+          beatGain.gain.setValueAtTime(0.55, this.audioContext.currentTime);
+          beatGain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.07);
+          osc.connect(beatGain);
+          beatGain.connect(this.gainNode);
           osc.start();
           osc.stop(this.audioContext.currentTime + 0.07);
         },
-
+        updateVolume() {
+          if (this.gainNode && this.audioContext) {
+            this.gainNode.gain.setValueAtTime(this.volume, this.audioContext.currentTime);
+          }
+        },
         pauseOrResume() {
           if (this.preparing || this.countingDownGo) return;
-
           this.paused = !this.paused;
           if (this.paused) {
             if (this.beatIntervalId) {
@@ -423,7 +408,6 @@
             this.scheduleBeats();
           }
         },
-
         reset() {
           this.running = false;
           this.paused = false;
@@ -433,7 +417,6 @@
           this.prepCountdown = 0;
           this.secondsLeft = 0;
           this.isLeft = true;
-
           if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
@@ -443,37 +426,35 @@
             this.beatIntervalId = null;
           }
         },
-
         finish() {
           this.running = false;
           this.finished = true;
           if (this.intervalId) clearInterval(this.intervalId);
           if (this.beatIntervalId) clearTimeout(this.beatIntervalId);
-
           setTimeout(() => {
-            if (this.audioContext) {
+            if (this.audioContext && this.gainNode) {
               const osc = this.audioContext.createOscillator();
               osc.type = "sine";
               osc.frequency.value = 440;
-              const gain = this.audioContext.createGain();
-              gain.gain.setValueAtTime(0.4, this.audioContext.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.9);
-              osc.connect(gain);
-              gain.connect(this.audioContext.destination);
+              const finishGain = this.audioContext.createGain();
+              finishGain.gain.setValueAtTime(0.4, this.audioContext.currentTime);
+              finishGain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.9);
+              osc.connect(finishGain);
+              finishGain.connect(this.gainNode);
               osc.start();
               osc.stop(this.audioContext.currentTime + 0.9);
             }
           }, 400);
         }
       },
-
       beforeDestroy() {
         this.reset();
-        if (this.audioContext) this.audioContext.close().catch(() => { });
+        if (this.audioContext) {
+          this.audioContext.close().catch(() => { });
+        }
       }
     });
   </script>
 </body>
-
 
 </html>
